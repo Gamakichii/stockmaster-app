@@ -1,0 +1,25 @@
+# Dependencies
+/vendor/
+
+# Environment variables file - DO NOT COMMIT THE ACTUAL .env FILE!
+/.env
+
+# Log files
+*.log
+logs/
+
+# Session files
+sessions/
+
+# IDE/Editor specific files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Operating System files
+Thumbs.db
+
+# Composer lock file (optional, depending on your strategy)
+# composer.lock
