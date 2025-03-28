@@ -22,17 +22,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // --- Validation ---
     if (empty($username) || empty($password) || empty($confirm_password)) {
-        <span class="math-inline">error\_message \= 'Please fill in all required fields\.';
-\} elseif \(\!preg\_match\('/^\[a\-zA\-Z0\-9\_\]\{3,20\}</span>/', $username)) {
+        // FIX: Add the '$' before error_message
+        $error_message = 'Please fill in all required fields.';
+    } elseif (!preg_match('/^[a-zA-Z0-9_]{3,20}$/', $username)) { // FIX: Correct elseif condition syntax
         // Username validation: letters, numbers, underscore, 3-20 chars
         $error_message = 'Username must be 3-20 characters (letters, numbers, underscore only).';
-    } elseif (strlen($password) < 8) {
+    } elseif (strlen($password) < 8) { // Keep the rest of the validation chain
         // Password length validation
         $error_message = 'Password must be at least 8 characters long.';
     } elseif ($password !== $confirm_password) {
         // Password confirmation check
         $error_message = 'Passwords do not match.';
-    } else {
+    } else { // The start of the else block where DB check happens
         // --- Check if username already exists ---
         try {
             $stmtCheck = $pdo->prepare("SELECT id FROM users WHERE username = :username LIMIT 1");
@@ -101,9 +102,9 @@ require_once __DIR__ . '/../includes/header.php';
         <form action="register.php" method="POST" novalidate>
             <div class="mb-4">
                 <label for="username" class="block text-gray-700 text-sm font-bold mb-2">Username:</label>
-                <input type="text" id="username" name="username" required value="<?php echo escape(<span class="math-inline">username\); ?\>"
-maxlength\="20" pattern\="^\[a\-zA\-Z0\-9\_\]\{3,20\}</span>" aria-describedby="usernameHelp"
-                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent <?php if($error_message && isset($_POST['username'])) echo 'border-red-500'; ?>">
+                <input type="text" id="username" name="username" required value="<?php echo escape($username); ?>"
+       maxlength="20" pattern="^[a-zA-Z0-9_]{3,20}$" aria-describedby="usernameHelp"
+       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent <?php if($error_message && isset($_POST['username'])) echo 'border-red-500'; ?>">
                 <p id="usernameHelp" class="text-xs text-gray-500 mt-1">3-20 characters (letters, numbers, underscore).</p>
             </div>
             <div class="mb-4">
