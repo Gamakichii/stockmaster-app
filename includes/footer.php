@@ -1,38 +1,45 @@
-<?php // includes/footer.php ?>
+<?php // includes/footer.php - Simplified Footer (No Social Icons) ?>
+
+        <?php // Page specific content from other PHP files ends just before this ?>
+
+    </main> <?php // Close the main content container started in header.php ?>
 
 
-        </main> <?php // End main container ?>
+    <footer class="bg-gray-900 text-gray-400 py-10 px-4 mt-16">
+        <div class="container mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
 
+            <div class="mb-6 md:mb-0">
+                <h3 class="text-xl font-bold text-white mb-4">StockMaster</h3>
+                <p class="text-sm mb-4 leading-relaxed">
+                    Modern inventory management solution powered by AWS. Efficiently track and manage your stock.
+                </p>
+                 <?php // Social Media Icons Section REMOVED ?>
+            </div>
 
-    <footer class="bg-gray-800 text-white text-center p-6 mt-16 border-t-4 border-blue-500"> <?php // Increased padding/margin ?>
-        <div class="container mx-auto">
+            <?php // Column 2: Contact Info ?>
+            <div>
+                 <h4 class="font-semibold text-white mb-4 uppercase tracking-wider text-sm">Contact Us</h4>
+                 <p class="text-sm mb-2">
+                     Have questions or need support?
+                 </p>
+                 <p class="text-sm">
+                    Email: <a href="mailto:support@stockmaster.example.com" class="hover:text-white underline">support@stockmaster.example.com</a>
+                 </p>
+                 <?php // Add Phone or Address here if desired ?>
+                 </div>
 
-            <?php
-                // Use current server year dynamically for copyright
-                $currentYear = date('Y');
-                // Get server timezone setting
-                $timezone = date_default_timezone_get();
-            ?>
+        </div> <?php // End grid container ?>
 
-            <p class="mb-2">Copyright &copy; <?php echo $currentYear; ?> StockMaster. All rights reserved.</p>
+        <div class="container mx-auto mt-10 pt-8 border-t border-gray-700 text-center text-sm">
+             <?php
+                 $currentYear = date('Y'); // Dynamic Year
+                 $timezone = date_default_timezone_get();
+             ?>
+            &copy; <?php echo $currentYear; ?> StockMaster. All rights reserved.
+            <span class="block mt-1 opacity-75">Mabalacat, Central Luzon, Philippines (Timezone: <?php echo escape($timezone); ?>)</span>
+        </div>
 
-            <p class="text-xs text-gray-400 mt-1">
-                Location Context: Mabalacat, Central Luzon, Philippines.
-                Server Timezone: <?php echo escape($timezone); ?>.
-                Current Time: <?php echo date('Y-m-d H:i:s'); // Show server time ?>
-            </p>
+    </footer> <?php // End footer section ?>
 
-            <?php
-            /* // Optional: Development/Debug Info - Remove or comment out for Production
-            // Check if APP_ENV is set in the .env file and is not 'production'
-            if (($_ENV['APP_ENV'] ?? 'production') !== 'production') {
-                echo '<p class="text-xs text-yellow-400 mt-3 p-2 bg-gray-700 rounded inline-block">Mode: ' . escape($_ENV['APP_ENV']) . '</p>';
-            }
-            */
-            ?>
-
-        </div> <?php // End container ?>
-    </footer>
-
-    </body>
-</html>
+</body> <?php // Closing body tag ?>
+</html> <?php // Closing html tag ?>

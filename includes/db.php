@@ -50,4 +50,9 @@ try {
      error_log("Database Connection Error: " . $e->getMessage());
      die("Database connection failed. Please try again later or contact support.");
 }
+
+// --- Include functions AFTER establishing DB connection ---
+// Or ensure functions load db.php if they need the $pdo global
+require_once __DIR__ . '/functions.php';
+
 ?>

@@ -1,97 +1,81 @@
 <?php
-// includes/header.php
-// db.php starts session, loads .env, connects DB, and includes functions.php
-require_once __DIR__ . '/db.php';
+// includes/header.php - CORRECTED Navigation Logic
+require_once __DIR__ . '/db.php'; // Loads DB, functions, session
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="StockMaster - Efficient Inventory Management System">
-
-    <title><?php echo escape($page_title ?? 'StockMaster'); // Default title ?></title>
-
+    <meta name="description" content="StockMaster - Simplify Your Inventory Management">
+    <title><?php echo escape($page_title ?? 'StockMaster'); ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
-
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
-    <style>
-        /* Basic smooth scroll */
-        html { scroll-behavior: smooth; }
-        /* Hide elements managed by Alpine initially to prevent flash */
-        [x-cloak] { display: none !important; }
-    </style>
+    <style> html { scroll-behavior: smooth; } [x-cloak] { display: none !important; } </style>
 </head>
-<body class="bg-gray-100 font-sans leading-normal tracking-normal">
+<body class="bg-white text-gray-800 font-sans"> <?php // Use bg-white for landing, maybe change based on page? ?>
 
-    <nav class="bg-blue-600 p-4 text-white shadow-md sticky top-0 z-50" x-data="{ mobileMenuOpen: false }">
-        <div class="container mx-auto flex justify-between items-center">
+    <nav class="bg-white shadow-sm sticky top-0 z-50" x-data="{ mobileMenuOpen: false }">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <a href="<?php echo is_logged_in() ? '/dashboard.php' : '/'; ?>" class="text-2xl font-bold text-gray-800">StockMaster</a>
 
-            <a href="<?php echo is_logged_in() ? '/dashboard.php' : '/index.php'; ?>" class="text-xl font-bold hover:text-blue-200 transition duration-150 ease-in-out">
-                StockMaster
-            </a>
-
-            <div class="hidden md:flex items-center space-x-4">
+            <div class="hidden md:flex items-center space-x-6">
+                <?php // --- START Conditional Links --- ?>
                 <?php if (is_logged_in()): ?>
-                    <a href="/dashboard.php" class="px-3 py-2 hover:bg-blue-700 rounded transition duration-150 ease-in-out">Dashboard</a>
-                    <a href="/inventory/index.php" class="px-3 py-2 hover:bg-blue-700 rounded transition duration-150 ease-in-out">Inventory</a>
-                    <?php if (is_admin()): ?>
-                        <a href="/admin/index.php" class="px-3 py-2 hover:bg-blue-700 rounded transition duration-150 ease-in-out">Admin Panel</a>
+                    <?php // --- Logged IN Links (Desktop) --- ?>
+                    <a href="/dashboard.php" class="text-gray-600 hover:text-blue-600 font-medium">Dashboard</a>
+                    <a href="/inventory/index.php" class="text-gray-600 hover:text-blue-600 font-medium">Inventory</a>
+                    <a href="/phishing_report.php" class="text-gray-600 hover:text-blue-600 font-medium">Phishing Report</a>
+                    <?php if (is_admin()): // Optional Admin link ?>
+                         <a href="/admin/index.php" class="text-gray-600 hover:text-blue-600 font-medium">Admin</a>
                     <?php endif; ?>
-                    <span class="px-3 py-2 text-blue-100">Hi, <?php echo escape($_SESSION['username'] ?? 'User'); ?>!</span>
-                    <a href="/logout.php" class="px-3 py-2 bg-red-500 hover:bg-red-600 rounded ml-2 transition duration-150 ease-in-out">Logout</a>
+                    <span class="text-sm text-gray-500 italic hidden lg:inline">Hi, <?php echo escape($_SESSION['username'] ?? 'User'); ?>!</span> <?php // Added username display ?>
+                    <a href="/logout.php" class="bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-md transition duration-150 ease-in-out">Logout</a>
                 <?php else: ?>
-                    <a href="/index.php#pricing" class="px-3 py-2 hover:bg-blue-700 rounded transition duration-150 ease-in-out">Pricing</a>
-                    <a href="/index.php#testimonials" class="px-3 py-2 hover:bg-blue-700 rounded transition duration-150 ease-in-out">Testimonials</a>
-                    <a href="/index.php#contact" class="px-3 py-2 hover:bg-blue-700 rounded transition duration-150 ease-in-out">Contact</a>
-                    <a href="/login.php" class="ml-4 px-4 py-2 bg-green-500 hover:bg-green-600 rounded font-semibold transition duration-150 ease-in-out">Login</a>
+                    <?php // --- Logged OUT Links (Desktop) --- ?>
+                    <a href="/#features" class="text-gray-600 hover:text-blue-600">Features</a> <?php // Changed to root path anchors ?>
+                    <a href="/#pricing" class="text-gray-600 hover:text-blue-600">Pricing</a>
+                    <a href="/#contact" class="text-gray-600 hover:text-blue-600">Contact</a>
+                    <a href="/login.php" class="bg-gray-800 hover:bg-gray-700 text-white font-semibold px-4 py-2 rounded-md transition duration-150 ease-in-out">Login</a>
                 <?php endif; ?>
+                <?php // --- END Conditional Links --- ?>
             </div>
 
             <div class="md:hidden">
-                <button @click="mobileMenuOpen = !mobileMenuOpen" class="text-white focus:outline-none" aria-label="Toggle mobile menu">
-                    <svg x-show="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path>
-                    </svg>
-                    <svg x-show="mobileMenuOpen" x-cloak class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
+                <button @click="mobileMenuOpen = !mobileMenuOpen" class="text-gray-800 focus:outline-none" aria-label="Toggle mobile menu">
+                    <svg x-show="!mobileMenuOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+                    <svg x-show="mobileMenuOpen" x-cloak class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
+        </div>
 
-        </div> <?php // End container ?>
+        <div x-show="mobileMenuOpen" x-cloak
+             @click.away="mobileMenuOpen = false"
+             x-transition
+             class="md:hidden absolute top-full left-0 right-0 bg-white shadow-lg py-2 border-t border-gray-200 z-40">
 
-        <div x-show="mobileMenuOpen"
-             x-cloak
-             @click.away="mobileMenuOpen = false" <?php // Close when clicking outside ?>
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 scale-95 transform -translate-y-1"
-             x-transition:enter-end="opacity-100 scale-100 transform translate-y-0"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100 scale-100 transform translate-y-0"
-             x-transition:leave-end="opacity-0 scale-95 transform -translate-y-1"
-             class="md:hidden absolute top-full left-0 right-0 bg-blue-700 shadow-lg py-2 z-40" <?php // Position below nav ?>
-        >
+            <?php // --- START Conditional Mobile Links --- ?>
             <?php if (is_logged_in()): ?>
-                <a href="/dashboard.php" class="block px-4 py-3 text-white hover:bg-blue-800 transition duration-150 ease-in-out">Dashboard</a>
-                <a href="/inventory/index.php" class="block px-4 py-3 text-white hover:bg-blue-800 transition duration-150 ease-in-out">Inventory</a>
-                <?php if (is_admin()): ?>
-                    <a href="/admin/index.php" class="block px-4 py-3 text-white hover:bg-blue-800 transition duration-150 ease-in-out">Admin Panel</a>
+                <?php // --- Logged IN Links (Mobile) --- ?>
+                <a href="/dashboard.php" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 hover:bg-gray-100 font-medium">Dashboard</a>
+                <a href="/inventory/index.php" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 hover:bg-gray-100 font-medium">Inventory</a>
+                <a href="/phishing_report.php" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 hover:bg-gray-100 font-medium">Phishing Report</a>
+                 <?php if (is_admin()): ?>
+                    <a href="/admin/index.php" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 hover:bg-gray-100 font-medium">Admin</a>
                 <?php endif; ?>
-                <div class="border-t border-blue-600 my-2"></div>
-                <span class="block px-4 py-2 text-blue-100 italic">Hi, <?php echo escape($_SESSION['username'] ?? 'User'); ?>!</span>
-                <a href="/logout.php" class="block px-4 py-3 text-white bg-red-500 hover:bg-red-600 transition duration-150 ease-in-out">Logout</a>
+                <div class="border-t border-gray-200 my-2"></div>
+                <span class="block px-4 py-2 text-sm text-gray-500 italic">Hi, <?php echo escape($_SESSION['username'] ?? 'User'); ?>!</span>
+                <a href="/logout.php" class="block px-4 py-3 text-red-600 font-medium hover:bg-gray-100">Logout</a>
             <?php else: ?>
-                <a href="/index.php#pricing" @click="mobileMenuOpen = false" class="block px-4 py-3 text-white hover:bg-blue-800 transition duration-150 ease-in-out">Pricing</a>
-                <a href="/index.php#testimonials" @click="mobileMenuOpen = false" class="block px-4 py-3 text-white hover:bg-blue-800 transition duration-150 ease-in-out">Testimonials</a>
-                <a href="/index.php#contact" @click="mobileMenuOpen = false" class="block px-4 py-3 text-white hover:bg-blue-800 transition duration-150 ease-in-out">Contact</a>
-                <div class="border-t border-blue-600 my-2"></div>
-                <a href="/login.php" class="block px-4 py-3 text-white bg-green-500 hover:bg-green-600 transition duration-150 ease-in-out">Login</a>
+                <?php // --- Logged OUT Links (Mobile) --- ?>
+                <a href="/#features" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 hover:bg-gray-100">Features</a>
+                <a href="/#pricing" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 hover:bg-gray-100">Pricing</a>
+                <a href="/#contact" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 hover:bg-gray-100">Contact</a>
+                <div class="border-t border-gray-200 my-2"></div>
+                <a href="/login.php" @click="mobileMenuOpen = false" class="block px-4 py-3 text-gray-700 font-medium hover:bg-gray-100">Login</a>
             <?php endif; ?>
-        </div> <?php // End mobile menu dropdown ?>
-
+            <?php // --- END Conditional Mobile Links --- ?>
+        </div>
     </nav>
 
-    <?php // Add padding-top if using fixed header that overlaps content (not needed for sticky) ?>
     <main class="container mx-auto p-4 mt-4">

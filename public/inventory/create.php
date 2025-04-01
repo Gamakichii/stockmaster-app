@@ -1,298 +1,274 @@
 <?php
-// public/inventory/index.php
+// public/inventory/create.php - MODIFIED with Add Quantity on Duplicate
 require_once __DIR__ . '/../../includes/db.php'; // Loads DB, functions, session
 
-require_login(); // Ensure user is logged in
+require_login(); // Ensure logged in
 $user_id = get_user_id();
 
-// --- Configuration ---
-$items_per_page = 15; // Items per page for pagination
+// --- Initialize variables ---
+$error_message = '';
+$info_message = ''; // For confirmation message
+$name = '';
+$quantity = 0;
+$price = 0.00;
+$category = '';
 
-// --- Input Handling & Validation ---
-$search_term = trim($_GET['search'] ?? '');
-$current_page = filter_input(INPUT_GET, 'page', FILTER_VALIDATE_INT, ['options' => ['default' => 1, 'min_range' => 1]]);
+// Variables for confirmation state
+$show_confirmation = false;
+$existing_item_id = null;
+$existing_quantity = null;
+$quantity_to_add = 0;
 
-// Sorting parameters - Validate against allowed columns
-$allowed_sort_columns = ['name', 'quantity', 'price', 'category', 'updated_at'];
-$sort_column = $_GET['sort'] ?? 'name'; // Default sort column
-if (!in_array($sort_column, $allowed_sort_columns, true)) { // Use strict check
-    $sort_column = 'name'; // Fallback to default if invalid column provided
-}
-// Validate sort direction
-$sort_direction_input = strtolower($_GET['dir'] ?? 'asc');
-$sort_direction = ($sort_direction_input === 'desc') ? 'DESC' : 'ASC'; // Default ASC
+// --- Handle POST Requests ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-// --- Build Base Query and Parameters ---
-$base_sql = "FROM inventory_items WHERE user_id = :user_id";
-$params = [':user_id' => $user_id];
-$where_clauses = []; // Array to hold WHERE conditions
+    // --- Check if this is a confirmation submission to add quantity ---
+    if (isset($_POST['action']) && $_POST['action'] === 'add_quantity') {
+        $existing_item_id = filter_input(INPUT_POST, 'existing_item_id', FILTER_VALIDATE_INT);
+        $quantity_to_add_input = $_POST['quantity_to_add'] ?? '';
+        $item_name_for_log = trim($_POST['item_name'] ?? 'Unknown'); // Get name for logging
 
-// Add search condition if search term is provided
-if (!empty($search_term)) {
-    // Search across multiple relevant fields using OR
-    $where_clauses[] = "(name LIKE :search OR category LIKE :search)"; // Add more fields if needed
-    $params[':search'] = '%' . $search_term . '%'; // Use wildcard search
-}
+        // Validate quantity again
+        if (!is_numeric($quantity_to_add_input) || (int)$quantity_to_add_input < 0 || floor($quantity_to_add_input) != $quantity_to_add_input) {
+             $error_message = 'Invalid quantity provided for addition. Must be a whole non-negative number.';
+             // Need to refetch item data to redisplay confirmation correctly - or handle state better
+             // For simplicity here, we'll just show the error and they'd have to restart the add process
+             $show_confirmation = false; // Exit confirmation mode on error
+        } elseif (!$existing_item_id) {
+             $error_message = 'Cannot add quantity. Item ID missing.';
+             $show_confirmation = false;
+        } else {
+            $quantity_to_add = (int)$quantity_to_add_input;
 
-// Combine WHERE clauses if any exist
-$where_sql = '';
-if (!empty($where_clauses)) {
-    $where_sql = " AND " . implode(' AND ', $where_clauses); // Combine with AND
-}
+            // Proceed with UPDATE
+            try {
+                $updateSql = "UPDATE inventory_items
+                              SET quantity = quantity + :added_quantity, updated_at = NOW()
+                              WHERE id = :id AND user_id = :user_id"; // Ensure ownership
+                $stmtUpdate = $pdo->prepare($updateSql);
+                $stmtUpdate->execute([
+                    ':added_quantity' => $quantity_to_add,
+                    ':id' => $existing_item_id,
+                    ':user_id' => $user_id
+                ]);
 
-// --- Pagination: Count Total Items ---
-$count_sql = "SELECT COUNT(id) " . $base_sql . $where_sql;
-$total_items = 0;
-$list_error = ''; // Initialize error variable
+                if ($stmtUpdate->rowCount() > 0) {
+                    log_action('add_quantity_to_item', ['item_id' => $existing_item_id, 'name' => $item_name_for_log, 'quantity_added' => $quantity_to_add]);
+                    header('Location: index.php?status=quantity_added'); // New status message
+                    exit;
+                } else {
+                    $error_message = 'Could not add quantity. Item may have been deleted or permission denied.';
+                    log_action('add_quantity_failed', ['item_id' => $existing_item_id, 'reason' => 'No rows affected by UPDATE']);
+                }
 
-try {
-    $stmt_count = $pdo->prepare($count_sql);
-    $stmt_count->execute($params); // Execute with search/filter parameters
-    $total_items = (int)$stmt_count->fetchColumn();
-} catch (PDOException $e) {
-    error_log("Inventory Count Error (User: {$user_id}): " . $e->getMessage());
-    $list_error = "Could not count inventory items. Please try again.";
-    // If count fails, we can't proceed with pagination accurately
-}
-
-$total_pages = ($items_per_page > 0) ? ceil($total_items / $items_per_page) : 0;
-
-// Adjust current page if it's out of bounds after calculation
-if ($current_page > $total_pages && $total_pages > 0) {
-    $current_page = $total_pages;
-} elseif ($current_page < 1) {
-    $current_page = 1;
-}
-$offset = ($current_page - 1) * $items_per_page;
-
-
-// --- Fetch Items for Current Page ---
-$items = []; // Initialize items array
-if (empty($list_error)) { // Only fetch if count was successful (or no error occurred)
-    $fetch_sql = "SELECT id, name, quantity, price, category, updated_at "
-               . $base_sql . $where_sql
-               . " ORDER BY " . $sort_column . " " . $sort_direction // Use validated sort parameters
-               . " LIMIT :limit OFFSET :offset"; // Add pagination limits
-
-    try {
-        $stmt_fetch = $pdo->prepare($fetch_sql);
-        // Bind parameters (including pagination limits)
-        foreach ($params as $key => $val) {
-            // Determine param type (example, adjust if needed)
-            $param_type = is_int($val) ? PDO::PARAM_INT : PDO::PARAM_STR;
-            $stmt_fetch->bindValue($key, $val, $param_type);
+            } catch (PDOException $e) {
+                error_log("Add Quantity DB Error (User: {$user_id}, Item: {$existing_item_id}): " . $e->getMessage());
+                $error_message = 'Database error while trying to add quantity.';
+            }
         }
-        $stmt_fetch->bindValue(':limit', $items_per_page, PDO::PARAM_INT);
-        $stmt_fetch->bindValue(':offset', $offset, PDO::PARAM_INT);
 
-        $stmt_fetch->execute();
-        $items = $stmt_fetch->fetchAll(); // Fetch all items for the current page
-    } catch (PDOException $e) {
-         error_log("Inventory List Fetch Error (User: {$user_id}, Page: {$current_page}): " . $e->getMessage());
-         $list_error = "Could not fetch inventory items list. Please try again.";
-         $items = []; // Ensure items is an empty array on error
-    }
-}
+    } else {
+        // --- Process Initial 'Add New Item' Submission ---
+        $name = trim($_POST['name'] ?? '');
+        $quantity_input = $_POST['quantity'] ?? '';
+        $price_input = $_POST['price'] ?? '';
+        $category = trim($_POST['category'] ?? '');
 
-// --- Helper function for sort links ---
-function sort_link($column, $text, $current_sort, $current_dir, $search_term) {
-    $new_dir = ($current_sort === $column && $current_dir === 'ASC') ? 'desc' : 'asc';
-    $arrow = '';
-    if ($current_sort === $column) {
-        $arrow = ($current_dir === 'ASC') ? ' &uarr;' : ' &darr;'; // Up/Down arrow
-    }
-    // Preserve search query and current page (optional, maybe reset page on sort?)
-    $query_params = http_build_query(array_filter([ // array_filter removes empty values like search=''
-        'sort' => $column,
-        'dir' => $new_dir,
-        'search' => $search_term,
-        // 'page' => 1 // Uncomment to reset to page 1 when changing sort
-    ]));
-    return "<a href=\"?{$query_params}\" class=\"hover:text-blue-700 flex items-center\">{$text}{$arrow}</a>";
-}
+        // Preserve raw inputs for form repopulation
+        $quantity_form_value = $quantity_input;
+        $price_form_value = $price_input;
+        $quantity = $quantity_input; // Keep for form value if validation fails
+        $price = $price_input;       // Keep for form value if validation fails
 
-// --- Helper function for pagination links ---
-function pagination_link($page, $text, $current_page, $total_pages, $search_term, $sort_column, $sort_direction) {
-     if ($page < 1 || $page > $total_pages || $total_pages <= 1) return ''; // Don't link invalid pages or if only one page
+        // --- Basic Validation ---
+        if (empty($name)) {
+            $error_message = 'Item name is required.';
+        } elseif (!is_numeric($quantity_input) || (int)$quantity_input < 0 || floor($quantity_input) != $quantity_input) {
+            $error_message = 'Quantity must be a whole non-negative number (e.g., 0, 1, 10).';
+        } elseif (!is_numeric($price_input) || (float)$price_input < 0) {
+            $error_message = 'Price must be a non-negative number (e.g., 0.00, 1.99).';
+        } elseif (mb_strlen($name) > 100) {
+            $error_message = 'Item name cannot exceed 100 characters.';
+        } elseif (mb_strlen($category) > 50) {
+            $error_message = 'Category name cannot exceed 50 characters.';
+        } else {
+            // --- Basic Validation Passed - Check for Duplicate ---
+            $quantity_to_add = (int)$quantity_input; // Store the quantity user intended to add
+            $price = round((float)$price_input, 2); // Store validated price
+            $category_value = !empty($category) ? $category : null; // Store category
 
-     $query_params = http_build_query(array_filter([ // Preserve filters/sort
-         'page' => $page,
-         'search' => $search_term,
-         'sort' => $sort_column,
-         'dir' => $sort_direction
-     ]));
-     $base_class = 'px-3 py-1 border rounded transition duration-150 ease-in-out';
-     $active_class = ($page == $current_page) ? 'bg-blue-500 text-white font-bold border-blue-500 cursor-default' : 'bg-white text-blue-600 border-gray-300 hover:bg-blue-50';
-     $disabled_class = '';
-     if (($page == $current_page - 1 && $current_page == 1) || ($page == $current_page + 1 && $current_page == $total_pages)) {
-         $disabled_class = 'text-gray-400 border-gray-300 bg-gray-100 cursor-not-allowed';
-         return "<span class=\"{$base_class} {$disabled_class}\">{$text}</span>"; // Non-clickable span for disabled prev/next
-     }
+            try {
+                $checkSql = "SELECT id, quantity FROM inventory_items WHERE name = :name AND user_id = :user_id LIMIT 1";
+                $stmtCheck = $pdo->prepare($checkSql);
+                $stmtCheck->execute([':name' => $name, ':user_id' => $user_id]);
+                $existing_item = $stmtCheck->fetch();
 
-     return "<a href=\"?{$query_params}\" class=\"{$base_class} {$active_class}\">{$text}</a>";
-}
+                if ($existing_item) {
+                    // --- DUPLICATE FOUND: Prepare for Confirmation ---
+                    $show_confirmation = true;
+                    $existing_item_id = $existing_item['id'];
+                    $existing_quantity = $existing_item['quantity'];
+                    $info_message = "Item '" . escape($name) . "' already exists with quantity " . escape($existing_quantity) . ". Add the submitted quantity (" . escape($quantity_to_add) . ")?";
+                    // Keep original form values for potential display in confirmation
+                    $quantity = $quantity_to_add;
 
-$page_title = 'Inventory - StockMaster'; // UPDATED title
-require_once __DIR__ . '/../../includes/header.php'; // Render header
+                } else {
+                    // --- NO DUPLICATE: Proceed with Insertion ---
+                    try {
+                        $sql = "INSERT INTO inventory_items (user_id, name, quantity, price, category, created_at, updated_at)
+                                VALUES (:user_id, :name, :quantity, :price, :category, NOW(), NOW())";
+                        $stmt = $pdo->prepare($sql);
+                        $stmt->execute([
+                            ':user_id' => $user_id,
+                            ':name' => $name,
+                            ':quantity' => $quantity_to_add, // Insert the submitted quantity
+                            ':price' => $price,
+                            ':category' => $category_value
+                        ]);
+                        $new_item_id = $pdo->lastInsertId();
+                        log_action('create_item', ['item_id' => $new_item_id, 'name' => $name, 'quantity' => $quantity_to_add, 'price' => $price, 'category' => $category_value]);
+                        header('Location: index.php?status=created');
+                        exit;
+                    } catch (PDOException $e) {
+                        error_log("Create Item DB Error (User: {$user_id}, Name: {$name}): " . $e->getMessage());
+                        $error_message = 'Failed to add item due to a database error.';
+                    } // End INSERT try/catch
+                } // End else (no duplicate found)
+
+            } catch (PDOException $e) { // Catch errors during DUPLICATE CHECK
+                 error_log("Create Item Duplicate Check Error (User: {$user_id}, Name: {$name}): " . $e->getMessage());
+                 $error_message = 'Failed to check for duplicate items.';
+            } // End Duplicate Check try/catch
+
+        } // End else (basic validation passed)
+
+        // Repopulate if validation error occurred during initial submission
+        if ($error_message && !$show_confirmation) {
+             $quantity = $quantity_form_value;
+             $price = $price_form_value;
+        }
+    } // End else (Initial 'Add New Item' Submission)
+} // End if POST request
+
+
+$page_title = 'Add New Item - StockMaster';
+require_once __DIR__ . '/../../includes/header.php';
 ?>
 
-<div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-    <h1 class="text-3xl font-bold text-gray-800">Inventory Items</h1>
-    <a href="create.php" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-150 ease-in-out">
-        + Add New Item
-    </a>
-</div>
+<?php // Breadcrumbs ?>
+<nav aria-label="breadcrumb" class="mb-6 text-sm text-gray-500">
+  <ol class="list-none p-0 inline-flex flex-wrap">
+    <li class="flex items-center"><a href="/dashboard.php" class="hover:text-blue-600">Dashboard</a><span class="mx-2">/</span></li>
+    <li class="flex items-center"><a href="/inventory/index.php" class="hover:text-blue-600">Inventory</a><span class="mx-2">/</span></li>
+    <li class="flex items-center text-gray-700" aria-current="page">Add New Item</li>
+  </ol>
+</nav>
 
-<div class="mb-4 bg-white p-4 rounded shadow border border-gray-200">
-    <form action="index.php" method="GET" class="flex flex-col sm:flex-row gap-2 items-center">
-         <input type="hidden" name="sort" value="<?php echo escape($sort_column); ?>">
-         <input type="hidden" name="dir" value="<?php echo escape(strtoupper($sort_direction)); ?>">
+<h1 class="text-3xl font-bold text-gray-800 mb-6">Add New Inventory Item</h1>
 
-        <label for="search" class="sr-only">Search Inventory</label>
-        <input type="search" id="search" name="search" placeholder="Search Name or Category..."
-               value="<?php echo escape($search_term); ?>"
-               class="border rounded px-4 py-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex-grow">
-        <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full sm:w-auto whitespace-nowrap transition duration-150 ease-in-out">
-            Search
-        </button>
-         <?php if ($search_term): ?>
-             <?php // Link to clear search, preserving sort order ?>
-             <a href="index.php?sort=<?php echo escape($sort_column); ?>&dir=<?php echo escape(strtoupper($sort_direction)); ?>"
-                class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 w-full sm:w-auto text-center whitespace-nowrap transition duration-150 ease-in-out">
-                 Clear
-             </a>
-        <?php endif; ?>
-    </form>
-</div>
+<div class="max-w-lg mx-auto bg-white p-8 border border-gray-300 rounded-lg shadow-lg">
 
-<?php // --- Display Status/Error Messages --- ?>
-<?php if ($list_error): ?>
-    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4" role="alert">
-        <p class="font-bold">Error</p>
-        <p><?php echo escape($list_error); ?></p>
-    </div>
-<?php endif; ?>
+    <?php // Display Error or Info Messages ?>
+    <?php if ($error_message): ?>
+        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+             <p class="font-bold">Error</p>
+            <p><?php echo escape($error_message); ?></p>
+        </div>
+    <?php elseif ($info_message): ?>
+         <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-6" role="alert">
+             <p class="font-bold">Confirmation Required</p>
+            <p><?php echo escape($info_message); ?></p> <?php // Info message for duplicate ?>
+        </div>
+    <?php endif; ?>
 
-<?php // Display status messages from redirects (e.g., after create/update/delete)
-    $status = $_GET['status'] ?? '';
-    $status_message = '';
-    $status_type = 'info'; // 'info', 'success', 'warning', 'error'
 
-    switch ($status) {
-        case 'created': $status_message = 'Item added successfully!'; $status_type = 'success'; break;
-        case 'updated': $status_message = 'Item updated successfully!'; $status_type = 'success'; break;
-        case 'deleted': $status_message = 'Item deleted successfully!'; $status_type = 'success'; break; // Use a neutral/success style
-        case 'notfound': $status_message = 'Item not found or access denied.'; $status_type = 'warning'; break;
-        case 'error': $status_message = 'An error occurred. Please try again.'; $status_type = 'error'; break;
-    }
+    <?php // --- Conditionally Render Form --- ?>
 
-    if ($status_message):
-        $alert_classes = [
-            'success' => 'bg-green-100 border-green-500 text-green-700',
-            'warning' => 'bg-yellow-100 border-yellow-500 text-yellow-700',
-            'error'   => 'bg-red-100 border-red-500 text-red-700',
-            'info'    => 'bg-blue-100 border-blue-500 text-blue-700',
-        ];
-        $alert_class = $alert_classes[$status_type] ?? $alert_classes['info'];
-?>
-    <div class="<?php echo $alert_class; ?> border-l-4 p-4 mb-4" role="alert">
-        <p><?php echo escape($status_message); ?></p>
-    </div>
-<?php endif; ?>
+    <?php if ($show_confirmation): ?>
+        <?php // --- Confirmation Form (Add Quantity) --- ?>
+        <form action="create.php" method="POST" novalidate>
+            <input type="hidden" name="action" value="add_quantity">
+            <input type="hidden" name="existing_item_id" value="<?php echo escape($existing_item_id); ?>">
+            <input type="hidden" name="item_name" value="<?php echo escape($name); ?>"> <?php // Pass name again for logging ?>
 
-<?php // --- Inventory Table --- ?>
-<div class="bg-white shadow-md rounded-lg overflow-x-auto border border-gray-200">
-    <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-            <tr>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    <?php echo sort_link('name', 'Name', $sort_column, $sort_direction, $search_term); ?>
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    <?php echo sort_link('quantity', 'Quantity', $sort_column, $sort_direction, $search_term); ?>
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                     <?php echo sort_link('price', 'Price', $sort_column, $sort_direction, $search_term); ?>
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                     <?php echo sort_link('category', 'Category', $sort_column, $sort_direction, $search_term); ?>
-                </th>
-                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                     <?php echo sort_link('updated_at', 'Last Updated', $sort_column, $sort_direction, $search_term); ?>
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                </th>
-            </tr>
-        </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
-            <?php if (empty($items) && empty($list_error)): // Show message only if no error occurred ?>
-                <tr>
-                    <td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center italic">
-                        <?php echo ($search_term) ? 'No items found matching your search.' : 'Your inventory is empty. Add some items!'; ?>
-                    </td>
-                </tr>
-            <?php elseif (!empty($items)): ?>
-                <?php foreach ($items as $item): ?>
-                    <tr>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            <?php echo escape($item['name']); ?>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right"> <?php // Align quantity right ?>
-                            <?php echo escape(number_format($item['quantity'])); ?>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right"> <?php // Align price right ?>
-                            $<?php echo escape(number_format($item['price'], 2)); ?>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <?php echo escape($item['category'] ?? '-'); // Display '-' if category is null/empty ?>
-                        </td>
-                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <?php echo date('M d, Y H:i', strtotime($item['updated_at'])); ?>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3"> <?php // Actions ?>
-                            <a href="edit.php?id=<?php echo $item['id']; ?>" class="text-indigo-600 hover:text-indigo-900 transition duration-150 ease-in-out">Edit</a>
-                            <?php // Delete Form - Use POST and JS confirm ?>
-                            <form action="delete.php" method="POST" class="inline-block" onsubmit="return confirm('Are you sure you want to delete the item \'<?php echo escape(addslashes($item['name'])); ?>\'? This action cannot be undone.');">
-                                <input type="hidden" name="item_id" value="<?php echo $item['id']; ?>">
-                                <input type="hidden" name="item_name" value="<?php echo escape($item['name']); ?>"> <?php // Pass name for logging ?>
-                                <button type="submit" class="text-red-600 hover:text-red-900 focus:outline-none transition duration-150 ease-in-out">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </tbody>
-    </table>
-</div> <?php // End table container ?>
+            <?php // Display Item Name (Readonly) ?>
+            <div class="mb-4">
+                <label for="name_display" class="block text-gray-700 text-sm font-bold mb-2">Item Name:</label>
+                <input type="text" id="name_display" value="<?php echo escape($name); ?>" readonly disabled
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-500 bg-gray-100 leading-tight cursor-not-allowed">
+            </div>
 
-<?php if ($total_pages > 1): ?>
-    <nav class="mt-6 flex justify-center items-center space-x-1" aria-label="Pagination">
-        <?php echo pagination_link($current_page - 1, '&laquo; Prev', $current_page, $total_pages, $search_term, $sort_column, $sort_direction); ?>
+            <?php // Quantity to Add Input ?>
+            <div class="mb-6">
+                <label for="quantity_to_add" class="block text-gray-700 text-sm font-bold mb-2">Quantity to Add <span class="text-red-500">*</span></label>
+                <input type="number" id="quantity_to_add" name="quantity_to_add" required value="<?php echo escape($quantity_to_add); ?>" min="0" step="1"
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                <p class="text-xs text-gray-500 mt-1">Confirm or change the quantity to add to the existing stock.</p>
+            </div>
 
-        <?php // Generate page number links (example: show current +/- 2 pages)
-            $start_page = max(1, $current_page - 2);
-            $end_page = min($total_pages, $current_page + 2);
+             <?php // Hidden/Disabled Price and Category ?>
+             <p class="text-sm text-gray-600 mb-6 italic">Price and Category cannot be modified when adding to existing stock.</p>
+             <?php /* Optionally show disabled fields:
+             <div class="mb-4 opacity-50"> ... Price input with 'disabled' ... </div>
+             <div class="mb-6 opacity-50"> ... Category input with 'disabled' ... </div>
+             */ ?>
 
-            if ($start_page > 1) echo pagination_link(1, '1', $current_page, $total_pages, $search_term, $sort_column, $sort_direction) . ($start_page > 2 ? '<span class="px-2 py-1 text-gray-500">...</span>' : '');
+            <?php // Confirmation Actions ?>
+            <div class="flex items-center justify-between gap-4 flex-wrap">
+                <button type="submit"
+                        class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex-grow sm:flex-grow-0 transition duration-150 ease-in-out">
+                    Confirm Add Quantity
+                </button>
+                <a href="index.php" class="inline-block align-baseline font-bold text-sm text-gray-600 hover:text-gray-800 border border-gray-300 px-4 py-2 rounded hover:bg-gray-100 transition duration-150 ease-in-out">
+                    Cancel
+                </a>
+            </div>
+        </form>
 
-            for ($i = $start_page; $i <= $end_page; $i++):
-                echo pagination_link($i, $i, $current_page, $total_pages, $search_term, $sort_column, $sort_direction);
-            endfor;
+    <?php else: ?>
+        <?php // --- Original Full "Add New Item" Form --- ?>
+        <form action="create.php" method="POST" novalidate>
+            <?php // Item Name ?>
+            <div class="mb-4">
+                <label for="name" class="block text-gray-700 text-sm font-bold mb-2">Item Name <span class="text-red-500">*</span></label>
+                <input type="text" id="name" name="name" required maxlength="100" value="<?php echo escape($name); ?>"
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent <?php if($error_message && empty(trim($_POST['name'] ?? ''))) echo 'border-red-500'; ?>">
+            </div>
+            <?php // Quantity ?>
+            <div class="mb-4">
+                <label for="quantity" class="block text-gray-700 text-sm font-bold mb-2">Quantity <span class="text-red-500">*</span></label>
+                <input type="number" id="quantity" name="quantity" required value="<?php echo escape($quantity); ?>" min="0" step="1" aria-describedby="quantityHelp"
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent <?php if($error_message && (!is_numeric($_POST['quantity'] ?? '') || (int)($_POST['quantity'] ?? -1) < 0)) echo 'border-red-500'; ?>">
+                 <p id="quantityHelp" class="text-xs text-gray-500 mt-1">Whole numbers only (0 or more).</p>
+            </div>
+            <?php // Price ?>
+            <div class="mb-4">
+                <label for="price" class="block text-gray-700 text-sm font-bold mb-2">Price (per item) <span class="text-red-500">*</span></label>
+                <input type="number" id="price" name="price" required value="<?php echo escape($price); ?>" min="0" step="0.01" aria-describedby="priceHelp"
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent <?php if($error_message && (!is_numeric($_POST['price'] ?? '') || (float)($_POST['price'] ?? -1) < 0)) echo 'border-red-500'; ?>">
+                 <p id="priceHelp" class="text-xs text-gray-500 mt-1">Format like 1.99 or 10.00.</p>
+            </div>
+             <?php // Category ?>
+             <div class="mb-6">
+                <label for="category" class="block text-gray-700 text-sm font-bold mb-2">Category</label>
+                <input type="text" id="category" name="category" maxlength="50" value="<?php echo escape($category); ?>" aria-describedby="categoryHelp"
+                       class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent <?php if($error_message && mb_strlen(trim($_POST['category'] ?? '')) > 50) echo 'border-red-500'; ?>">
+                 <p id="categoryHelp" class="text-xs text-gray-500 mt-1">Optional, max 50 characters.</p>
+            </div>
 
-            if ($end_page < $total_pages) echo ($end_page < $total_pages - 1 ? '<span class="px-2 py-1 text-gray-500">...</span>' : '') . pagination_link($total_pages, $total_pages, $current_page, $total_pages, $search_term, $sort_column, $sort_direction);
-        ?>
+            <?php // Form Actions ?>
+            <div class="flex items-center justify-between gap-4 flex-wrap">
+                <button type="submit"
+                        class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex-grow sm:flex-grow-0 transition duration-150 ease-in-out">
+                    Add Item
+                </button>
+                <a href="index.php" class="inline-block align-baseline font-bold text-sm text-gray-600 hover:text-gray-800 border border-gray-300 px-4 py-2 rounded hover:bg-gray-100 transition duration-150 ease-in-out">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    <?php endif; // End conditional form rendering ?>
 
-        <?php echo pagination_link($current_page + 1, 'Next &raquo;', $current_page, $total_pages, $search_term, $sort_column, $sort_direction); ?>
-    </nav>
-     <div class="mt-2 text-center text-sm text-gray-500">
-        Page <?php echo $current_page; ?> of <?php echo $total_pages; ?> (Total items: <?php echo $total_items; ?>)
-    </div>
-<?php elseif ($total_items > 0 && empty($list_error)): // Show total if only one page and no errors ?>
-     <div class="mt-4 text-center text-sm text-gray-500">
-        Total items: <?php echo $total_items; ?>
-    </div>
-<?php endif; ?>
-
+</div> <?php // End form container div ?>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; // Render footer ?>

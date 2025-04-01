@@ -138,7 +138,7 @@ require_once __DIR__ . '/../../includes/header.php'; // Render header
 
 <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
     <h1 class="text-3xl font-bold text-gray-800">Inventory Items</h1>
-    <a href="create.php" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-150 ease-in-out">
+    <a href="/inventory/create.php" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-150 ease-in-out">
         + Add New Item
     </a>
 </div>
@@ -248,10 +248,21 @@ require_once __DIR__ . '/../../includes/header.php'; // Render header
                             <?php echo escape($item['category'] ?? '-'); // Display '-' if category is null/empty ?>
                         </td>
                          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <?php echo date('M d, Y H:i', strtotime($item['updated_at'])); ?>
+                            <?php
+    try {
+        // Create DateTime object, assuming the DB string is UTC
+        $date = new DateTime($item['updated_at'], new DateTimeZone('UTC'));
+        // Set the desired display timezone
+        $date->setTimezone(new DateTimeZone('Asia/Manila'));
+        // Format it
+        echo $date->format('M d, Y H:i');
+    } catch (Exception $e) {
+        echo 'Invalid Date'; // Fallback for invalid date format
+    }
+                             ?>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3"> <?php // Actions ?>
-                            <a href="edit.php?id=<?php echo $item['id']; ?>" class="text-indigo-600 hover:text-indigo-900 transition duration-150 ease-in-out">Edit</a>
+                            <a href="/inventory/edit.php?id=<?php echo $item['id']; ?>" class="text-indigo-600 hover:text-indigo-900 transition duration-150 ease-in-out">Edit</a>
                             <?php // Delete Form - Use POST and JS confirm ?>
                             <form action="delete.php" method="POST" class="inline-block" onsubmit="return confirm('Are you sure you want to delete the item \'<?php echo escape(addslashes($item['name'])); ?>\'? This action cannot be undone.');">
                                 <input type="hidden" name="item_id" value="<?php echo $item['id']; ?>">
